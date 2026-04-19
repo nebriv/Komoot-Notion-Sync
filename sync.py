@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 from kompy import KomootConnector
-from notion import NotionClient
+from notion_client import Client as NotionClient
 
 METERS_TO_MILES = 0.000621371
 METERS_TO_FEET = 3.28084
@@ -55,14 +55,10 @@ def get_number(page: dict, name: str) -> Optional[float]:
 def iter_pages(notion: NotionClient, database_id: str) -> Iterator[dict]:
     cursor: Optional[str] = None
     while True:
-        body: dict = {"page_size": 100}
+        kwargs: dict = {"database_id": database_id, "page_size": 100}
         if cursor:
-            body["start_cursor"] = cursor
-        resp = notion.request(
-            method="POST",
-            path=f"/databases/{database_id}/query",
-            body=body,
-        )
+            kwargs["start_cursor"] = cursor
+        resp = notion.databases.query(**kwargs)
         for page in resp["results"]:
             yield page
         if not resp.get("has_more"):
@@ -148,11 +144,7 @@ def sync() -> int:
             continue
 
         try:
-            notion.request(
-                method="PATCH",
-                path=f"/pages/{page['id']}",
-                body={"properties": props},
-            )
+            notion.pages.update(page_id=page["id"], properties=props)
         except Exception as exc:
             print(f"[fail] {name}: notion update failed: {exc}")
             failed += 1
