@@ -52,13 +52,25 @@ def get_number(page: dict, name: str) -> Optional[float]:
     return prop(page, name).get("number")
 
 
-def iter_pages(notion: NotionClient, database_id: str) -> Iterator[dict]:
+def resolve_data_source_id(notion: NotionClient, database_id: str) -> str:
+    """Notion API 2025-09-03+ queries data sources, not databases directly."""
+    db = notion.databases.retrieve(database_id=database_id)
+    sources = db.get("data_sources") or []
+    if not sources:
+        raise RuntimeError(
+            f"Database {database_id} has no data sources; "
+            "set NOTION_DATA_SOURCE_ID explicitly."
+        )
+    return sources[0]["id"]
+
+
+def iter_pages(notion: NotionClient, data_source_id: str) -> Iterator[dict]:
     cursor: Optional[str] = None
     while True:
-        kwargs: dict = {"database_id": database_id, "page_size": 100}
+        kwargs: dict = {"data_source_id": data_source_id, "page_size": 100}
         if cursor:
             kwargs["start_cursor"] = cursor
-        resp = notion.databases.query(**kwargs)
+        resp = notion.data_sources.query(**kwargs)
         for page in resp["results"]:
             yield page
         if not resp.get("has_more"):
@@ -94,9 +106,13 @@ def sync() -> int:
     notion = NotionClient(auth=notion_token)
     komoot = KomootConnector(email=komoot_email, password=komoot_password)
 
+    data_source_id = os.environ.get("NOTION_DATA_SOURCE_ID") or resolve_data_source_id(
+        notion, database_id
+    )
+
     updated = skipped = failed = 0
 
-    for page in iter_pages(notion, database_id):
+    for page in iter_pages(notion, data_source_id):
         name = get_title(page) or "(untitled)"
         status = get_select(page, "Hike Status")
 
